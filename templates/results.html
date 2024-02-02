@@ -10,11 +10,10 @@
     <div class="container mt-5">
         <h2>Search Results</h2>
         <a href="/download" class="btn btn-success mt-3">Download TSV</a>
-        <!-- {% for table in tables %}
-            <div class="table-responsive">
-                {{ table|safe }}
-            </div>
-        {% endfor %} -->
+        <h3>Strategy Counts per PubMed ID</h3>
+        <div class="table-responsive">
+            {{ strategy_counts|safe }}
+        </div>
     </div>
 </body>
 </html>
