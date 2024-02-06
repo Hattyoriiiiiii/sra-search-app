@@ -5,6 +5,9 @@ from wtforms.validators import DataRequired
 from pysradb.search import SraSearch
 import pandas as pd
 import re
+from Bio import Entrez
+
+Entrez.email = "www.tatsuya92@gmail.com"
 
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = 'your_secret_key'
@@ -28,41 +31,71 @@ class SearchForm(FlaskForm):
 def format_link(id):
     return f'<a href="https://pubmed.ncbi.nlm.nih.gov/{id}">{id}</a>'
 
+def fetch_pubmed_details(pubmed_id):
+    handle = Entrez.efetch(db="pubmed", id=str(pubmed_id), retmode="xml")
+    records = Entrez.read(handle)
+    details = {
+        'title': None,
+        'journal': None,
+        'publication_date': None
+    }
+    try:
+        article = records['PubmedArticle'][0]['MedlineCitation']['Article']
+        details['title'] = article.get('ArticleTitle', None)
+        if 'Journal' in article:
+            details['journal'] = article['Journal'].get('Title', None)
+        if 'ArticleDate' in article and article['ArticleDate']:
+            details['publication_date'] = f"{article['ArticleDate'][0]['Year']}-{article['ArticleDate'][0]['Month']}-{article['ArticleDate'][0].get('Day', '01')}"
+        elif 'PubDate' in article and article['PubDate']:
+            pub_date = article['PubDate']
+            year = pub_date.get('Year', 'Unknown')
+            month = pub_date.get('Month', '01')
+            day = pub_date.get('Day', '01')
+            details['publication_date'] = f"{year}-{month}-{day}"
+    except IndexError as e:
+        print(f"Error fetching details for PubMed ID {pubmed_id}: {e}")
+    return details
+
+
+def update_dataframe_with_pubmed_info(df):
+    titles, journals, publication_dates = [], [], []
+    for pubmed_id in df['pubmed_id']:
+        if pd.notnull(pubmed_id):
+            details = fetch_pubmed_details(pubmed_id)
+            titles.append(details['title'])
+            journals.append(details['journal'])
+            publication_dates.append(details['publication_date'])
+        else:
+            titles.append(None)
+            journals.append(None)
+            publication_dates.append(None)
+    
+    df['title'] = titles
+    df['journal'] = journals
+    df['publication_date'] = publication_dates
+    return df
+
+def add_h3k27ac_flag(df):
+    # H3K27acをターゲットにしているかどうかを示すフラグを追加
+    df['h3k27ac_flag'] = df.apply(lambda row: 1 if 'ChIP-Seq' in row['experiment_library_strategy'] and 'H3K27ac' in row.get('pool_member_sample_title', '') else 0, axis=1)
+    return df
+
+
 def search_sra(organism, return_max, strategies, query):
     combined_df = pd.DataFrame()
 
     # columns_to_keep = [
-    #     'study_accession', 'experiment_accession', 'experiment_title',
-    #     'sample_taxon_id', 'sample_scientific_name', 'experiment_library_strategy',
-    #     'experiment_library_source', 'experiment_library_selection', 'sample_accession',
-    #     'sample_alias', 'experiment_instrument_model', 'pool_member_spots',
-    #     'run_1_size', 'run_1_accession', 'run_1_total_spots', 'run_1_total_bases',
-    #     'experiment_alias', 'experiment_library_construction_protocol',
-    #     'experiment_link_1_type', 'experiment_link_1_value_1', 'experiment_link_1_value_2',
-    #     'experiment_link_1_value_3', 'experiment_platform', 'experiment_sample_descriptor_accession',
-    #     'library_layout', 'pool_external_id', 'pool_member_accession', 'pool_member_bases',
-    #     'pool_member_organism', 'pool_member_sample_name', 'pool_member_sample_title',
-    #     'pool_member_tax_id', 'run_1_published', 'run_1_srafile_1_date', 'run_1_srafile_1_filename',
-    #     'run_1_srafile_2_filename', 'run_1_srafile_2_md5', 'run_1_srafile_2_semantic_name',
-    #     'run_1_srafile_3_filename', 'run_1_srafile_3_md5', 'run_1_srafile_3_semantic_name',
-    #     'sample_attributes_1_tag', 'sample_attributes_1_value', 'sample_attributes_2_tag',
-    #     'sample_attributes_2_value', 'sample_attributes_3_tag', 'sample_attributes_3_value',
-    #     'sample_attributes_4_tag', 'sample_attributes_4_value', 'sample_attributes_5_tag',
-    #     'sample_attributes_5_value', 'sample_attributes_6_tag', 'sample_attributes_6_value',
-    #     'sample_attributes_7_tag', 'sample_attributes_7_value', 'sample_external_id_1',
-    #     'sample_external_id_1_namespace', 'sample_link_1_type', 'sample_link_1_value_1',
-    #     'sample_link_1_value_2', 'sample_link_1_value_3', 'sample_title', 'study_alias',
-    #     'study_attributes_1_tag', 'study_attributes_1_value', 'study_center_name',
-    #     'study_center_project_name', 'study_external_id_1', 'study_external_id_1_namespace',
-    #     'study_link_1_type', 'study_link_1_value_1', 'study_link_1_value_2',
-    #     'study_study_abstract', 'study_study_title', 'study_study_type_existing_study_type',
-    #     'submission_accession', 'submission_alias', 'run_1_srafile_4_filename', 'run_1_srafile_4_md5'
+    #     'study_accession', 'experiment_accession', 'sample_scientific_name',
+    #     'experiment_library_strategy', 'experiment_library_source', 'pubmed_id',
+    #     'run_1_srafile_1_date', 'experiment_library_construction_protocol',
+    #     'pool_member_sample_title', 'study_study_abstract'
     # ]
     columns_to_keep = [
-        'study_accession', 'experiment_accession', 'sample_scientific_name',
-        'experiment_library_strategy', 'experiment_library_source', 'pubmed_id',
-        'run_1_srafile_1_date', 'experiment_library_construction_protocol',
-        'pool_member_sample_title', 'study_study_abstract'
+        'study_external_id_1', 'run_1_accession', 
+        'pool_member_sample_title', 'study_study_abstract', 'study_study_title',
+        'pool_member_organism', 'experiment_instrument_model', 'experiment_library_strategy',
+        'experiment_library_source', 'experiment_library_selection', 'library_layout',
+        'experiment_library_construction_protocol', 'study_alias', 'run_1_published', 'pubmed_id'
     ]
 
     for strategy in strategies:
@@ -90,6 +123,7 @@ def search_sra(organism, return_max, strategies, query):
 
     combined_df['pubmed_id'] = combined_df.apply(extract_pubmed_ids, axis=1)
     combined_df = combined_df[columns_to_keep]
+    combined_df = add_h3k27ac_flag(combined_df)
 
     # ChIP-SeqとRNA-Seqの両方を含むPubMed IDを特定
     chip_seq_ids = set(combined_df[combined_df['experiment_library_strategy'] == 'ChIP-Seq']['pubmed_id'])
@@ -98,6 +132,9 @@ def search_sra(organism, return_max, strategies, query):
 
     # 有効なPubMed IDに一致する行を保持
     filtered_df = combined_df[combined_df['pubmed_id'].isin(valid_ids)]
+
+    # PubMedからのデータを取得
+    filtered_df = update_dataframe_with_pubmed_info(filtered_df)
 
     # 各PubMed IDについて選択されたstrategyの数を計算
     strategy_count = filtered_df.groupby('pubmed_id')['experiment_library_strategy'].value_counts().unstack().fillna(0)
