@@ -81,7 +81,7 @@ def update_dataframe_with_pubmed_info(df):
 
 def add_h3k27ac_flag(df):
     # H3K27acをターゲットにしているかどうかを示すフラグを追加
-    df['h3k27ac_flag'] = df.apply(lambda row: 1 if 'ChIP-Seq' in row['experiment_library_strategy'] and 'H3K27ac' in row.get('pool_member_sample_title', '') else 0, axis=1)
+    df['h3k27ac_flag'] = df.apply(lambda row: 1 if 'ChIP-Seq' in row['experiment_library_strategy'] and isinstance(row.get('pool_member_sample_title'), str) and 'H3K27ac' in row['pool_member_sample_title'] else 0, axis=1)
     return df
 
 
@@ -166,9 +166,10 @@ def search_sra(organism, return_max, strategies, query):
     # サンプル属性情報をDataFrameに追加
     attribute_keywords = {
         'age': ['age', 'period', 'duration', 'developmental stage'],
-        'sex': ['sex'],
-        'condition': ['disease', 'condition'],
-        'cell_line': ['cell line', 'cell type', 'cell_line', 'cell_type']
+        'sex': ['sex', 'gender'],
+        'condition': ['disease', 'disease state', 'diagnosis', 'condition', 'health_state', 'control', 'treatment', 'stimulus', 'stress', 'injury', 'environment', 'diet', 'exposure'],
+        'cell_line': ['cell line', 'cell type', 'cell_line', 'cell_type', 'cell'],
+        'tissue': ['tissue', 'organ', 'tissue_type', 'organism_part']
     }
     combined_df = extract_sample_attributes(combined_df, attribute_keywords)
 
@@ -188,6 +189,9 @@ def search_sra(organism, return_max, strategies, query):
 
     # PubMedからのデータを取得
     filtered_df = update_dataframe_with_pubmed_info(filtered_df)
+
+    # conditionとcell_lineの組み合わせ列を作成
+    # filtered_df['condition_cell_line'] = filtered_df['condition'].str.strip().replace('', 'No Condition') + '_' + filtered_df['cell_line'].str.strip()
 
     # 各PubMed IDについて選択されたstrategyの数を計算
     strategy_count = filtered_df.groupby('pubmed_id')['experiment_library_strategy'].value_counts().unstack().fillna(0)
