@@ -7,7 +7,7 @@ import pandas as pd
 import re
 from Bio import Entrez
 
-Entrez.email = "www.tatsuya92@gmail.com"
+Entrez.email = ""
 
 app = Flask(__name__, template_folder='templates')
 app.config['SECRET_KEY'] = 'your_secret_key'
